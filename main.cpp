@@ -127,7 +127,7 @@ int main() {
         glm::vec4 dataLength;
     };
 
-    SDFInstance s[5];
+    SDFInstance s[20];
     printf("SIZES: %lu, %lu\n", s, sizeof(SDFInstance));
 
     glUseProgram(program);
@@ -136,7 +136,7 @@ int main() {
     glGenBuffers(1, &ssbo);
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, 5 * sizeof(SDFInstance), &s,
+    glBufferData(GL_SHADER_STORAGE_BUFFER, 20 * sizeof(SDFInstance), &s,
                  GL_DYNAMIC_DRAW); //sizeof(data) only works for statically sized C/C++ arrays.
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo);
@@ -165,7 +165,7 @@ int main() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssbo2);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    int tex_w = 128, tex_h = 128;
+    int tex_w = 256, tex_h = 256;
     GLuint tex_output;
     glGenTextures(1, &tex_output);
     glActiveTexture(GL_TEXTURE0);
@@ -205,22 +205,22 @@ int main() {
     int frameCount = 0;
     int fps = 0;
     while (!glfwWindowShouldClose(window)) {
-        for (int i = 0 ; i < 5; i++) {
+        for (int i = 0 ; i < 20; i++) {
             s[i] = SDFInstance{
                     glm::inverse(glm::rotate(glm::translate(glm::mat4(1.0),
-                                               glm::vec3(-16.0f + i * 8.0f, 0.0, 0.0)), ((float)glfwGetTime()), glm::vec3(1, 1, 1))),
+                                               glm::vec3(-16.0f + (i%10) * 3.0f + 2.0f, floor(i/10)*10-5, 0.0)), ((float)glfwGetTime()), glm::vec3(1, 1, 1))),
                     glm::vec4(20, 8, 8, 0),
                     glm::vec4(0, 12 * 8 * 8, 0, 0),
             };
         }
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, 5 * sizeof(SDFInstance), &s,
+        glBufferData(GL_SHADER_STORAGE_BUFFER, 20 * sizeof(SDFInstance), &s,
                      GL_DYNAMIC_DRAW);
         glUseProgram(program);
 
         for(int i = 0; i < 16; i++) {
-            glDispatchCompute((GLuint) tex_w, (GLuint) tex_h, 1);
+            glDispatchCompute((GLuint) tex_w/32/2, (GLuint) tex_h/32/2, 1);
         }
 
         double currentTime = glfwGetTime();
@@ -242,6 +242,11 @@ int main() {
                      ImGuiWindowFlags_NoInputs);
         ImGui::TextColored(ImVec4(1, 1, 0, 1), "FPS: %i", fps);
         ImGui::End();
+
+        ImGui::Begin("SDF");
+        ImGui::Text("Real cool!");
+        ImGui::End();
+
         ImGui::Render();
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
