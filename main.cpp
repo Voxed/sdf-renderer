@@ -17,6 +17,7 @@
 
 float rot;
 float rot2;
+bool normal;
 
 int main() {
     if (glfwInit() != GLFW_TRUE) {
@@ -254,6 +255,8 @@ int main() {
                      GL_DYNAMIC_DRAW);
         glUseProgram(program);
 
+        glUniform1f(0, normal ? 1.0f : 0.0f);
+
         for (int i = 0; i < 1; i++) {
             glDispatchCompute((GLuint) tex_w / 16, (GLuint) tex_h / 16, 1);
         }
@@ -282,6 +285,7 @@ int main() {
         ImGui::Text("SDF rotation control :)");
         ImGui::SliderFloat("Rotate Y", &rot, 0, 3.14*2);
         ImGui::SliderFloat("Rotate Z", &rot2, 0, 3.14*2);
+        ImGui::Checkbox("Normals", &normal);
         ImGui::End();
 
         ImGui::Render();
