@@ -15,6 +15,9 @@
 #include "shader.vert"
 #include "shader.frag"
 
+float rot;
+float rot2;
+
 int main() {
     if (glfwInit() != GLFW_TRUE) {
         spdlog::error("Failed to initialize GLFW!");
@@ -127,7 +130,7 @@ int main() {
         glm::vec4 dataLength;
     };
 
-    SDFInstance s[20];
+    SDFInstance s[24];
     printf("SIZES: %lu, %lu\n", s, sizeof(SDFInstance));
 
     glUseProgram(program);
@@ -136,25 +139,50 @@ int main() {
     glGenBuffers(1, &ssbo);
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, 20 * sizeof(SDFInstance), &s,
+    glBufferData(GL_SHADER_STORAGE_BUFFER, 24 * sizeof(SDFInstance), &s,
                  GL_DYNAMIC_DRAW); //sizeof(data) only works for statically sized C/C++ arrays.
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
 
-    float data[20*8*8];
+    float data[20 * 10 * 10 * 3];
 
-    for(int x = 0; x < 20; x++) {
-        for(int y = 0; y < 8; y++) {
-            for(int z = 0; z < 8; z++) {
-                data[x + y*20 + z*20*8] = sqrt(pow(4-z, 2) + pow(6-x, 2) + pow(4-y, 2)) - 2.0f;
-                data[x + y*20 + z*20*8] = fmin(sqrt(pow(4-z, 2) + pow(12-x, 2) + pow(4-y, 2)) - 2.0f, data[x + y*20 + z*20*8]);
-                data[x + y*20 + z*20*8] = fmin(sqrt(pow(4-z,2) + pow(4-y, 2)) - 1.0f, data[x + y*20 + z*20*8]);
+    for (int x = 0; x < 20; x++) {
+        for (int y = 0; y < 10; y++) {
+            for (int z = 0; z < 10; z++) {
+                data[x + y * 20 + z * 20 * 10] = sqrt(pow(5 - z, 2) + pow(5 - x, 2) + pow(5 - y, 2)) - 3.0f;
+                data[x + y * 20 + z * 20 * 10] = fmin(sqrt(pow(5 - z, 2) + pow(14 - x, 2) + pow(5 - y, 2)) - 3.0f,
+                                                      data[x + y * 20 + z * 20 * 10]);
+                data[x + y * 20 + z * 20 * 10] = fmin(sqrt(pow(5 - z, 2) + pow(5 - y, 2)) - 2.0f,
+                                                      data[x + y * 20 + z * 20 * 10]);
             }
         }
     }
-
+    int off = 20 * 10 * 10;
+    for (int x = 0; x < 20; x++) {
+        for (int y = 0; y < 10; y++) {
+            for (int z = 0; z < 10; z++) {
+                data[x + y * 20 + z * 20 * 10 + off] = sqrt(pow(5 - z, 2) + pow(5 - x, 2) + pow(5 - y, 2)) - 2.0f;
+                data[x + y * 20 + z * 20 * 10 + off] = fmin(sqrt(pow(5 - z, 2) + pow(14 - x, 2) + pow(5 - y, 2)) - 3.0f,
+                                                      data[x + y * 20 + z * 20 * 10 + off]);
+                data[x + y * 20 + z * 20 * 10 + off] = fmin(sqrt(pow(5 - z, 2) + pow(5 - y, 2)) - 1.0f,
+                                                      data[x + y * 20 + z * 20 * 10 + off]);
+            }
+        }
+    }
+    off = 20 * 10 * 10*2;
+    for (int x = 0; x < 20; x++) {
+        for (int y = 0; y < 10; y++) {
+            for (int z = 0; z < 10; z++) {
+                data[x + y * 20 + z * 20 * 10 + off] = sqrt(pow(5 - z, 2) + pow(5 - x, 2) + pow(5 - y, 2)) - 3.0f;
+                data[x + y * 20 + z * 20 * 10 + off] = fmin(sqrt(pow(5 - z, 2) + pow(14 - x, 2) + pow(5 - y, 2)) - 1.0f,
+                                                            data[x + y * 20 + z * 20 * 10 + off]);
+                data[x + y * 20 + z * 20 * 10 + off] = fmin(sqrt(pow(5 - z, 2) + pow(5 - y, 2)) - 0.25f,
+                                                            data[x + y * 20 + z * 20 * 10 + off]);
+            }
+        }
+    }
     GLuint ssbo2;
     glGenBuffers(1, &ssbo2);
 
@@ -172,8 +200,8 @@ int main() {
     glBindTexture(GL_TEXTURE_2D, tex_output);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, tex_w, tex_h, 0, GL_RGBA, GL_FLOAT,
                  nullptr);
     glBindImageTexture(0, tex_output, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -205,22 +233,29 @@ int main() {
     int frameCount = 0;
     int fps = 0;
     while (!glfwWindowShouldClose(window)) {
-        for (int i = 0 ; i < 20; i++) {
+        for (int i = 0; i < 24; i++) {
             s[i] = SDFInstance{
-                    glm::inverse(glm::rotate(glm::translate(glm::mat4(1.0),
-                                               glm::vec3(-16.0f + (i%10) * 3.0f + 2.0f, floor(i/10)*10-5, 0.0)), ((float)glfwGetTime()), glm::vec3(1, 1, 1))),
-                    glm::vec4(20, 8, 8, 0),
-                    glm::vec4(0, 12 * 8 * 8, 0, 0),
+                    glm::inverse(glm::rotate(glm::rotate(glm::translate(glm::mat4(1.0),
+                                                                        glm::vec3(-16.0f + (i % 8) * 6.75f - 8.0f,
+                                                                                  floor(i / 8) * 20 - 20, 0.0)),
+                                                         rot, glm::vec3(0, 1, 0)), rot2,
+                                             glm::vec3(0, 0, 1)
+
+                                 )
+
+                    ),
+                    glm::vec4(20, 10, 10, 0),
+                    glm::vec4(20 * 10 * 10 * floor(i/8), 20 * 10 * 10, 0, 0),
             };
         }
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, 20 * sizeof(SDFInstance), &s,
+        glBufferData(GL_SHADER_STORAGE_BUFFER, 24 * sizeof(SDFInstance), &s,
                      GL_DYNAMIC_DRAW);
         glUseProgram(program);
 
-        for(int i = 0; i < 16; i++) {
-            glDispatchCompute((GLuint) tex_w/32/2, (GLuint) tex_h/32/2, 1);
+        for (int i = 0; i < 1; i++) {
+            glDispatchCompute((GLuint) tex_w / 16, (GLuint) tex_h / 16, 1);
         }
 
         double currentTime = glfwGetTime();
@@ -244,7 +279,9 @@ int main() {
         ImGui::End();
 
         ImGui::Begin("SDF");
-        ImGui::Text("Real cool!");
+        ImGui::Text("SDF rotation control :)");
+        ImGui::SliderFloat("Rotate Y", &rot, 0, 3.14*2);
+        ImGui::SliderFloat("Rotate Z", &rot2, 0, 3.14*2);
         ImGui::End();
 
         ImGui::Render();
