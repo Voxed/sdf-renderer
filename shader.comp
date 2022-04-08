@@ -12,6 +12,7 @@ layout(local_size_x = 16, local_size_y = 16 ) in;
 layout(rgba32f, binding = 0) uniform image2D img_output;
 
 layout(location = 0) uniform float normals;
+layout(location = 1) uniform float light;
 
 precision highp float;
 
@@ -47,7 +48,13 @@ float SDFvalue(SDFInstance instance, vec3 voxelr)
     return data;
 }
 
-vec2 SDFdist(SDFInstance instance, vec3 ray) {
+float mixc(float v1, float v2, float a) {
+
+    //float a2 = 1.0 - (cos(a*PI)+1)/2.0;
+    return mix(v1, v2, a);
+}
+
+float SDFdist(SDFInstance instance, vec3 ray) {
     vec3 model_space = (instance.transform*vec4(ray, 1.0)).xyz;
     float d = distToBox(model_space, instance.size.xyz);
     if(d < .1) {
@@ -64,45 +71,57 @@ vec2 SDFdist(SDFInstance instance, vec3 ray) {
         float v7 = SDFvalue(instance, floor(off + vec3(0.5, -0.5, -0.5)));
         float v8 = SDFvalue(instance, floor(off + vec3(-0.5, -0.5, -0.5)));
 
-        float v15 = mix(v5, v1, dist.z);
-        float v26 = mix(v6, v2, dist.z);
-        float v37 = mix(v7, v3, dist.z);
-        float v48 = mix(v8, v4, dist.z);
+        float v15 = mixc(v5, v1, dist.z);
+        float v26 = mixc(v6, v2, dist.z);
+        float v37 = mixc(v7, v3, dist.z);
+        float v48 = mixc(v8, v4, dist.z);
 
-        float v1537 = mix(v37, v15, dist.y);
-        float v4826 = mix(v48, v26, dist.y);
+        float v1537 = mixc(v37, v15, dist.y);
+        float v4826 = mixc(v48, v26, dist.y);
 
-        float v = mix(v4826, v1537, dist.x);
+        float v = mixc(v4826, v1537, dist.x);
 
-        if(v < 0.01) {
-            return vec2(v, 1.0f);
-        }else{
-            return vec2(v, 0.0f);
-        }
+        return v;
     }else{
-        return vec2(d, 0.0f);
+        return d;
     }
 }
 
-vec4 rayCast(vec3 ray, vec3 dir) {
+float dist(vec3 p) {
+    float d = 150.0f;
+    for(int i =0; i < instances.length(); i++) {
+        float d2 = SDFdist(instances[i], p);
+        if(d2 < d) {
+            d = d2;
+        }
+    }
+    return d;
+}
+
+vec3 rayCast(vec3 ray, vec3 dir) {
     vec3 start = ray;
     float distance = 0.0f;
-    while(distance < 150){
-        vec2 d = vec2(150.0f, 0.0f);
-        for(int i =0; i < instances.length(); i++) {
-            vec2 d2 = SDFdist(instances[i], ray);
-            if(d2.x < d.x) {
-                d = d2;
-            }
-        }
-        if(d.y == 1.0f) {
-            return vec4(ray, 1.0f);
+    while(distance < 300){
+        float d = dist(ray);
+        if(d < 0.1) {
+            return ray;
         }else{
-            distance += d.x;
+            distance += d;
             ray = start + distance*dir;
         }
     }
-    return vec4(ray, 0.0f);
+    return ray;
+}
+
+vec3 GetSurfaceNormal(vec3 p)
+{
+    float d0 = dist(p);
+    const vec2 epsilon = vec2(.0001,0);
+    vec3 d1 = vec3(
+        dist(p-epsilon.xyy),
+        dist(p-epsilon.yxy),
+        dist(p-epsilon.yyx));
+    return normalize(d0 - d1);
 }
 
 void main()
@@ -113,23 +132,20 @@ void main()
     vec3 color = vec3(0);
     vec3 ray = vec3(0.0, 0.0, -40.0f);
     vec3 dir = vec3(p.x/32.0,p.y/32.0,1);
-    vec4 d1 = rayCast(ray, dir);
-    vec4 d2 = rayCast(ray + vec3(0.00005,0.0,0.0), dir);
-    vec4 d3 = rayCast(ray + vec3(0.0,0.00005,0.0), dir);
-    if(d1.w == 1.0f) {
-        vec3 A = d2.xyz - d1.xyz;
-        vec3 B = d3.xyz - d1.xyz;
-        vec3 n = vec3(
-            A.y * B.z - A.z * B.y,
-            A.z * B.x - A.x * B.z,
-            A.x * B.y - A.y * B.x
-          );
+    vec3 d1 = rayCast(ray, dir);
+
+    if(d1.z < 256) {
         if(normals == 0.0f)
             imageStore(img_output, pixel_coords, vec4(vec3((d1.z-10.0)/22.0 + 1.0), 1.0));
-        else
-            imageStore(img_output, pixel_coords, vec4(normalize(n), 1.0));
+        else if(light == 1.0f) {
+            vec3 c = GetSurfaceNormal(d1.xyz);
+            imageStore(img_output, pixel_coords, vec4(vec3(max(0.0, dot(c, normalize(vec3(-1,1,-1)))-0.1) + 0.1), 1.0));
+        }else{
+            vec3 c = GetSurfaceNormal(d1.xyz);
+            imageStore(img_output, pixel_coords, vec4(c, 1.0));
+        }
     }else{
-        imageStore(img_output, pixel_coords, vec4(0.0, 0.0, 0.0, 1.0));
+        imageStore(img_output, pixel_coords, vec4(vec3(0), 1.0));
     }
 }
 

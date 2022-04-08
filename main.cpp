@@ -18,6 +18,7 @@
 float rot;
 float rot2;
 bool normal;
+bool light;
 
 int main() {
     if (glfwInit() != GLFW_TRUE) {
@@ -25,7 +26,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto window = glfwCreateWindow(480, 480, "Vx.Luminence", nullptr, nullptr);
+    auto window = glfwCreateWindow(1024, 1024, "Vx.Luminence", nullptr, nullptr);
     if (!window) {
         spdlog::error("Failed to create GLFW window!");
         glfwTerminate();
@@ -131,7 +132,7 @@ int main() {
         glm::vec4 dataLength;
     };
 
-    SDFInstance s[24];
+    SDFInstance s[96*2];
     printf("SIZES: %lu, %lu\n", s, sizeof(SDFInstance));
 
     glUseProgram(program);
@@ -140,7 +141,7 @@ int main() {
     glGenBuffers(1, &ssbo);
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, 24 * sizeof(SDFInstance), &s,
+    glBufferData(GL_SHADER_STORAGE_BUFFER, 96*2 * sizeof(SDFInstance), &s,
                  GL_DYNAMIC_DRAW); //sizeof(data) only works for statically sized C/C++ arrays.
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo);
@@ -194,15 +195,15 @@ int main() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssbo2);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    int tex_w = 256, tex_h = 256;
+    int tex_w = 512, tex_h = 512;
     GLuint tex_output;
     glGenTextures(1, &tex_output);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, tex_output);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, tex_w, tex_h, 0, GL_RGBA, GL_FLOAT,
                  nullptr);
     glBindImageTexture(0, tex_output, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -234,11 +235,13 @@ int main() {
     int frameCount = 0;
     int fps = 0;
     while (!glfwWindowShouldClose(window)) {
-        for (int i = 0; i < 24; i++) {
-            s[i] = SDFInstance{
+        for (int i2 = 0; i2 < 96*2; i2++) {
+            int i = i2%24;
+            int z = floor(i2/24)*20;
+            s[i2] = SDFInstance{
                     glm::inverse(glm::rotate(glm::rotate(glm::translate(glm::mat4(1.0),
                                                                         glm::vec3(-16.0f + (i % 8) * 6.75f - 8.0f,
-                                                                                  floor(i / 8) * 20 - 20, 0.0)),
+                                                                                  floor(i / 8) * 20 - 20, z)),
                                                          rot, glm::vec3(0, 1, 0)), rot2,
                                              glm::vec3(0, 0, 1)
 
@@ -251,11 +254,12 @@ int main() {
         }
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, 24 * sizeof(SDFInstance), &s,
+        glBufferData(GL_SHADER_STORAGE_BUFFER, 96*2 * sizeof(SDFInstance), &s,
                      GL_DYNAMIC_DRAW);
         glUseProgram(program);
 
         glUniform1f(0, normal ? 1.0f : 0.0f);
+        glUniform1f(1, light ? 1.0f : 0.0f);
 
         for (int i = 0; i < 1; i++) {
             glDispatchCompute((GLuint) tex_w / 16, (GLuint) tex_h / 16, 1);
@@ -286,6 +290,7 @@ int main() {
         ImGui::SliderFloat("Rotate Y", &rot, 0, 3.14*2);
         ImGui::SliderFloat("Rotate Z", &rot2, 0, 3.14*2);
         ImGui::Checkbox("Normals", &normal);
+        ImGui::Checkbox("Lights", &light);
         ImGui::End();
 
         ImGui::Render();
