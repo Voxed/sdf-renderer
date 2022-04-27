@@ -8,11 +8,17 @@ std::string source = R"(
 
 #define PI 3.1415926535897932384626433832795
 
-layout(local_size_x = 16, local_size_y = 16 ) in;
+layout(local_size_x = 32, local_size_y = 32 ) in;
 layout(rgba32f, binding = 0) uniform image2D img_output;
 
 layout(location = 0) uniform float normals;
 layout(location = 1) uniform float light;
+layout(location = 2) uniform float cut;
+
+layout(location = 3) uniform mat4 PROJ;
+layout(location = 4) uniform mat4 VIEW;
+layout(location = 5) uniform float SHADOWS;
+layout(location = 6) uniform float USE_SHADOWS;
 
 precision highp float;
 
@@ -33,8 +39,10 @@ layout(std430, binding = 2) buffer sdfData
     float data[];
 };
 
-float distToBox(vec3 pos, vec3 boxSize) {
-    vec3 closestPoint = clamp(pos, -boxSize/2.0, boxSize/2.0);
+float lodRM(float distance);
+
+float distToBox(vec3 pos) {
+    vec3 closestPoint = clamp(pos, 0, 1.0);
 
     return length(closestPoint - pos);
 }
@@ -54,22 +62,41 @@ float mixc(float v1, float v2, float a) {
     return mix(v1, v2, a);
 }
 
-float SDFdist(SDFInstance instance, vec3 ray) {
-    vec3 model_space = (instance.transform*vec4(ray, 1.0)).xyz;
-    float d = distToBox(model_space, instance.size.xyz);
-    if(d < .1) {
-        vec3 off = model_space + instance.size.xyz/2;
+float SDFdist(SDFInstance instance, vec3 ray, float distance, vec3 dir) {
+    vec3 model_space = ((instance.transform*vec4(ray, 1.0)).xyz);
 
-        vec3 dist = mod(off+0.5f, 1.0f);
+    // Non-uniform scale is a pain when dealing with SDFs it appears. I propose a solution where you scale the
+    // distance by the scaling ratio along the direction of the ray.
 
-        float v1 = SDFvalue(instance, floor(off + vec3(0.5, 0.5, 0.5)));
-        float v2 = SDFvalue(instance, floor(off + vec3(-0.5, 0.5, 0.5)));
-        float v3 = SDFvalue(instance, floor(off + vec3(0.5, -0.5, 0.5)));
-        float v4 = SDFvalue(instance, floor(off + vec3(-0.5, -0.5, 0.5)));
-        float v5 = SDFvalue(instance, floor(off + vec3(0.5, 0.5, -0.5)));
-        float v6 = SDFvalue(instance, floor(off + vec3(-0.5, 0.5, -0.5)));
-        float v7 = SDFvalue(instance, floor(off + vec3(0.5, -0.5, -0.5)));
-        float v8 = SDFvalue(instance, floor(off + vec3(-0.5, -0.5, -0.5)));
+    // How it will move in this space for every change in dir amplitude.
+    vec3 model_space2 = ((instance.transform*vec4(ray + dir, 1.0)).xyz);
+    float scaling = length(model_space2-model_space);
+
+    float d = distToBox(model_space)/scaling;
+
+
+
+
+    // We want it to move by v in this space, so we divide by how much v affects movement in this space.
+
+    // TODO: This is definitely not working as expected, further investigation is required, wild theories not
+    // acceptable.
+
+    if(d < lodRM(distance)) {
+        vec3 off = model_space;
+        vec3 voxelSize = vec3(1.0)/instance.size.xyz;
+        vec3 os = voxelSize/2.0;
+
+        vec3 dist = mod(off-os, voxelSize)/voxelSize;
+
+        float v1 = SDFvalue(instance, floor((off + vec3(os.x, os.y, os.z))/voxelSize));
+        float v2 = SDFvalue(instance, floor((off + vec3(-os.x, os.y, os.z))/voxelSize));
+        float v3 = SDFvalue(instance, floor((off + vec3(os.x, -os.y, os.z))/voxelSize));
+        float v4 = SDFvalue(instance, floor((off + vec3(-os.x, -os.y, os.z))/voxelSize));
+        float v5 = SDFvalue(instance, floor((off + vec3(os.x, os.y, -os.z))/voxelSize));
+        float v6 = SDFvalue(instance, floor((off + vec3(-os.x, os.y, -os.z))/voxelSize));
+        float v7 = SDFvalue(instance, floor((off + vec3(os.x, -os.y, -os.z))/voxelSize));
+        float v8 = SDFvalue(instance, floor((off + vec3(-os.x, -os.y, -os.z))/voxelSize));
 
         float v15 = mixc(v5, v1, dist.z);
         float v26 = mixc(v6, v2, dist.z);
@@ -81,16 +108,16 @@ float SDFdist(SDFInstance instance, vec3 ray) {
 
         float v = mixc(v4826, v1537, dist.x);
 
-        return v;
+        return v/scaling;
     }else{
         return d;
     }
 }
 
-float dist(vec3 p) {
+float dist(vec3 p, float distance, vec3 dir) {
     float d = 150.0f;
     for(int i =0; i < instances.length(); i++) {
-        float d2 = SDFdist(instances[i], p);
+        float d2 = SDFdist(instances[i], p, distance, dir);
         if(d2 < d) {
             d = d2;
         }
@@ -98,12 +125,17 @@ float dist(vec3 p) {
     return d;
 }
 
+float lodRM(float dist) {
+    return 0.01;
+    return min(4.0f, pow(dist/100.0f, 2.0f)*4.0f + 0.2f);
+}
+
 vec3 rayCast(vec3 ray, vec3 dir) {
     vec3 start = ray;
     float distance = 0.0f;
     while(distance < 300){
-        float d = dist(ray);
-        if(d < 0.1) {
+        float d = dist(ray, distance, dir);
+        if(d < lodRM(distance)) {
             return ray;
         }else{
             distance += d;
@@ -113,39 +145,96 @@ vec3 rayCast(vec3 ray, vec3 dir) {
     return ray;
 }
 
-vec3 GetSurfaceNormal(vec3 p)
+vec3 GetSurfaceNormal(vec3 p, float distance, vec3 dir)
 {
-    float d0 = dist(p);
+    float d0 = dist(p, distance, dir);
     const vec2 epsilon = vec2(.0001,0);
     vec3 d1 = vec3(
-        dist(p-epsilon.xyy),
-        dist(p-epsilon.yxy),
-        dist(p-epsilon.yyx));
+        dist(p-epsilon.xyy, distance, dir),
+        dist(p-epsilon.yxy, distance, dir),
+        dist(p-epsilon.yyx, distance, dir));
     return normalize(d0 - d1);
 }
 
 void main()
 {
+    mat4 projview = PROJ*VIEW;
+    mat4 INV_PROJ_VIEW = inverse(projview);
+
+
     ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
     ivec2 dims = imageSize(img_output);
-    vec2 p = vec2( pixel_coords * 2 - dims ) / dims * 32;
+    vec2 p = vec2( pixel_coords * 2 - dims ) / dims;
+
+    //p += vec2(0.5)/dims;
+
+
+    vec3 ray = (INV_PROJ_VIEW * vec4(p, -1.0, 1.0) * 0.1f).xyz;
+    vec3 dir = normalize( (INV_PROJ_VIEW * vec4(p * (200.0f - 0.1f), 200.0f + 0.1f, 200.0f - 0.1f)).xyz );
+
+    //imageStore(img_output, pixel_coords, vec4(dir, 1.0f));
+
     vec3 color = vec3(0);
-    vec3 ray = vec3(0.0, 0.0, -40.0f);
-    vec3 dir = vec3(p.x/32.0,p.y/32.0,1);
+    //vec3 ray = vec3(p.x*2.0, p.y*2.0, -60.0f + cut);
+    //vec3 dir = normalize(vec3(p.x/50.0, p.y/50.0 ,1));
     vec3 d1 = rayCast(ray, dir);
 
-    if(d1.z < 256) {
-        if(normals == 0.0f)
-            imageStore(img_output, pixel_coords, vec4(vec3((d1.z-10.0)/22.0 + 1.0), 1.0));
-        else if(light == 1.0f) {
-            vec3 c = GetSurfaceNormal(d1.xyz);
-            imageStore(img_output, pixel_coords, vec4(vec3(max(0.0, dot(c, normalize(vec3(-1,1,-1)))-0.1) + 0.1), 1.0));
-        }else{
-            vec3 c = GetSurfaceNormal(d1.xyz);
-            imageStore(img_output, pixel_coords, vec4(c, 1.0));
+    vec3 li = vec3(-1,1,1);
+
+    float mist = (150.0f - d1.z)/150.0f;
+    if(normals == 0.0f)
+        imageStore(img_output, pixel_coords, vec4(vec3(mist/2.0), 1.0));
+    else if(light == 1.0f) {
+        vec3 c = (vec4(GetSurfaceNormal(d1.xyz, length(d1 - ray), dir), 1.0)).xyz;
+        vec3 l = normalize(li);
+        if(dot(c, l) > 0) {
+            float count = 0;
+            vec2 samples[] = {
+                vec2(0.131f, 0.266f),
+                vec2(1.308f, 0.779f),
+                vec2(1.879f, 0.355f),
+                vec2(0.709f, 0.854f),
+                vec2(0.842f, 0.431f),
+                vec2(1.167f, 0.929f),
+                vec2(1.796f, 0.749f),
+                vec2(1.547f, 0.784f)
+            };
+            vec3 D = l;
+            if(USE_SHADOWS == 1.0f)
+                for(int i = 0; i < 1; i++){
+                    vec3 other = normalize(vec3(1.0f, 0.0f, 0.0f));
+                    if(other == D) {
+                        vec3 other = normalize(vec3(0.0f, 1.0f, 0.0f));
+                    }
+                    vec3 P = cross(D, other);
+                    vec3 Q = cross(D, P);
+
+                    float RMax = tan(0.0f);
+                    float theta = samples[i].x*PI;
+                    float r = RMax * sqrt(samples[i].y);
+                    vec3 V = r * (P * cos(theta) + Q * sin(theta));
+                    vec3 V2 = normalize(D + V);
+
+                    vec3 d2 = rayCast(d1 + D*0.05, D);
+                    if(length(d2 - d1) > 100) {
+                       count++;
+                    }
+                }
+            if(SHADOWS == 1.0f) {
+                imageStore(img_output, pixel_coords, vec4(vec3((count/1.0f)), 1.0));
+            }else{
+                imageStore(img_output, pixel_coords, vec4(vec3(max(0.0, (USE_SHADOWS == 1.0f ? (count/1.0f) : 1.0)*(dot(c, l))))*mist, 1.0));
+                //imageStore(img_output, pixel_coords, vec4(D, 1.0));
+            }
+            return;
         }
+        if(SHADOWS == 1.0f)
+            imageStore(img_output, pixel_coords, vec4(0.0,0.0,0.0,1.0));
+        else
+            imageStore(img_output, pixel_coords, vec4(mix(vec3(0.0f), vec3(0.0)*vec3(1.0f, 0.8f, 0.25f), mist), 1.0));
     }else{
-        imageStore(img_output, pixel_coords, vec4(vec3(0), 1.0));
+        vec3 c = (vec4(GetSurfaceNormal(d1.xyz, length(d1 - ray), dir), 1.0)).xyz;
+        imageStore(img_output, pixel_coords, vec4(c*mist, 1.0));
     }
 }
 

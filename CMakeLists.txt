@@ -10,5 +10,5 @@ find_package(GLEW REQUIRED)
 
 add_subdirectory(third_party)
 
-add_executable(Vx_Luminence main.cpp)
+add_executable(Vx_Luminence main.cpp Mesh.cpp Mesh.h Primitive.cpp Primitive.h third_party/OBJ_Loader.h)
 target_link_libraries(Vx_Luminence spdlog::spdlog glfw OpenGL::OpenGL GLEW::GLEW imgui_glfw)
